@@ -61,6 +61,34 @@ impl StyledText {
             Err(StyledTextFromMarkdownError::new(errors))
         }
     }
+
+    /// Creates styled text directly from plain-text paragraphs and per-range colors, with no
+    /// markdown involved. `paragraphs` is one entry per line: its plain text, plus the color
+    /// spans (byte ranges into that text) to apply within it. Useful for building colored text
+    /// from already-tokenized data (e.g. syntax highlighting) without needing to escape it as
+    /// markdown and pay for a parse — a caller that already knows its text/color spans can skip
+    /// `from_markdown`'s text-assembly-then-reparse round trip entirely.
+    pub fn from_colored_paragraphs(
+        paragraphs: impl IntoIterator<
+            Item = (alloc::string::String, alloc::vec::Vec<(core::ops::Range<usize>, crate::Color)>),
+        >,
+    ) -> Self {
+        let paragraphs: alloc::vec::Vec<i_slint_common::styled_text::StyledTextParagraph> = paragraphs
+            .into_iter()
+            .map(|(text, spans)| i_slint_common::styled_text::StyledTextParagraph {
+                text,
+                formatting: spans
+                    .into_iter()
+                    .map(|(range, color)| i_slint_common::styled_text::FormattedSpan {
+                        range,
+                        style: i_slint_common::styled_text::Style::Color(color.as_argb_encoded()),
+                    })
+                    .collect(),
+                links: Default::default(),
+            })
+            .collect();
+        Self { paragraphs: paragraphs.as_slice().into() }
+    }
 }
 
 pub fn get_raw_text(styled_text: &StyledText) -> alloc::borrow::Cow<'_, str> {
