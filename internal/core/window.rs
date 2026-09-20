@@ -1336,9 +1336,30 @@ impl WindowInner {
         let mut item = self.focus_item.borrow().clone().upgrade();
 
         if item.as_ref().is_some_and(|i| !i.is_visible()) {
-            // Reset the focus... not great, but better than keeping it.
+            // The focused item disappeared (e.g. scrolled out of a
+            // virtualized list and culled while it held focus). Leaving
+            // `item`/`self.focus_item` fully cleared would silently drop
+            // every subsequent key event, including this one: the
+            // capture/bubble delivery below only runs when there's a
+            // valid starting item, with no fallback to e.g. the window's
+            // own root FocusScope. Fall back to the nearest still-visible
+            // ancestor instead — virtually always found, since typically
+            // only the specific (now-culled) item is invisible, not its
+            // whole ancestor chain up to the window — and publish it as
+            // the new focus so later events don't hit the same gap.
+            let stale = item.take();
             self.take_focus_item(&FocusEvent::FocusOut(FocusReason::TabNavigation));
-            item = None;
+            let mut ancestor = stale.and_then(|i| i.parent_item(ParentItemTraversalMode::StopAtPopups));
+            while let Some(candidate) = &ancestor {
+                if candidate.is_visible() {
+                    break;
+                }
+                ancestor = candidate.parent_item(ParentItemTraversalMode::StopAtPopups);
+            }
+            if let Some(ancestor) = &ancestor {
+                self.publish_focus_item(&Some(ancestor.clone()), FocusReason::TabNavigation);
+            }
+            item = ancestor;
         }
 
         let item_list = {
