@@ -247,6 +247,10 @@ pub struct StyledTextItem {
     pub horizontal_alignment: Property<TextHorizontalAlignment>,
     pub vertical_alignment: Property<TextVerticalAlignment>,
     pub max_lines: Property<i32>,
+    /// `clip` (default, matches this item's pre-existing hardcoded behavior) or `elide`: with a
+    /// height limit and word-wrap (always on for this item), `elide` drops lines that don't fit
+    /// the box and puts an ellipsis on the last visible one, instead of just clipping.
+    pub overflow: Property<TextOverflow>,
     pub link_clicked: Callback<StringArg>,
     pub link_color: Property<Color>,
     /// Read-only text selection (drag-to-select/highlight/copy; no editing). Byte offsets are
@@ -551,7 +555,7 @@ impl RenderText for StyledTextItem {
     }
 
     fn overflow(self: Pin<&Self>) -> TextOverflow {
-        TextOverflow::Clip
+        self.overflow()
     }
 
     fn is_markdown(self: Pin<&Self>) -> bool {

@@ -1,0 +1,30 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+// `overflow: elide` on a StyledText drops the lines that don't fit the height and puts an ellipsis on
+// the last one; with per-token colors the line has several glyph runs, and only one gets the ellipsis.
+
+export component TestCase inherits Window {
+    width: 100px;
+    height: 40px;
+
+    StyledText {
+        x: 0px;
+        y: 0px;
+        width: 100px;
+        height: 20px;
+        overflow: elide;
+        text: @markdown("one <font color=\"red\">two</font> three <font color=\"blue\">four</font> five six seven eight nine ten eleven twelve");
+    }
+
+    StyledText {
+        x: 0px;
+        y: 20px;
+        width: 100px;
+        height: 20px;
+        overflow: clip;
+        text: @markdown("one two three four five six seven eight nine ten eleven twelve");
+    }
+
+    out property <bool> test: true;
+}

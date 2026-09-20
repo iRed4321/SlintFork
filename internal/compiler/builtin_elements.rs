@@ -1210,6 +1210,10 @@ fn build(l: &mut Loader) {
         in property <styled-text> text;
         /// The vertical alignment of the text.
         in property <TextVerticalAlignment> vertical-alignment;
+        /// This item always wraps at word boundaries; `overflow` controls what happens when the
+        /// wrapped text still doesn't fit a constrained `height`: `clip` (default) just cuts it off,
+        /// `elide` drops whichever trailing lines don't fit and puts `…` on the last visible one.
+        in property <TextOverflow> overflow;
         /// The background color of a read-only text selection made by dragging the mouse over the text.
         /// Unlike `TextInput`'s property of the same name, this isn't currently wired up to a
         /// style-provided default (see `apply_default_properties_from_style`) — set it explicitly.

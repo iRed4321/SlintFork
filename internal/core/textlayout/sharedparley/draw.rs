@@ -180,9 +180,18 @@ impl TextParagraph {
             // Padded for ink overhanging the advance, like the vertical filtering of lines.
             let padded_x_range = visible_x_range
                 .map(|x_range| (x_range.start - line_height)..(x_range.end + line_height));
-            for item in line.items() {
+            // A line can hold several glyph runs (e.g. the per-token colored spans of styled
+            // text): the vertical-truncation ellipsis is one mark for the whole line, so only the
+            // last run should ever receive it -- passing it to every run would draw one ellipsis
+            // per run.
+            let line_items: Vec<_> = line.items().collect();
+            let last_glyph_run_index = line_items
+                .iter()
+                .rposition(|item| matches!(item, parley::PositionedLayoutItem::GlyphRun(_)));
+            for (item_index, item) in line_items.into_iter().enumerate() {
                 match item {
                     parley::PositionedLayoutItem::GlyphRun(glyph_run) => {
+                        let is_last_run_on_line = Some(item_index) == last_glyph_run_index;
                         let mut glyph_x_range = None;
                         if let Some(x_range) = &padded_x_range {
                             let run_start = PhysicalLength::new(glyph_run.offset());
@@ -198,7 +207,7 @@ impl TextParagraph {
                         let ellipsis = if last_line {
                             let (truncated_glyphs, ellipsis) = layout.glyphs_with_elision(
                                 &glyph_run,
-                                vertically_truncated,
+                                vertically_truncated && is_last_run_on_line,
                                 metrics.trailing_whitespace,
                             );
 
