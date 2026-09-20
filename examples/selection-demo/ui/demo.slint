@@ -1,0 +1,27 @@
+export component Demo inherits Window {
+    width: 480px;
+    height: 320px;
+    title: "styled-text-selection sanity check";
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        Text {
+            text: "Drag over the colored text below to select it, then Ctrl+C.";
+            font-size: 12px;
+        }
+
+        st := StyledText {
+            height: 160px;
+            selection-background-color: #3390ff66;
+            text: @markdown("Some **bold**, some *italic*, and some `inline code`, all on one line so a drag has to cross styled-run boundaries to prove selection isn't confined to a single run.\n\nA second paragraph, to prove selection also crosses paragraph boundaries — parley lays each one out separately, so this is exactly the case the byte-range fix in create_text_paragraphs was for.\n");
+        }
+
+        Text {
+            text: "anchor: " + st.anchor-position-byte-offset + "  cursor: " + st.cursor-position-byte-offset;
+            font-size: 11px;
+            color: #888;
+        }
+    }
+}

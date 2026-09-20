@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "selection-demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+slint = { path = "../../api/rs/slint" }
+
+[build-dependencies]
+slint-build = { path = "../../api/rs/build" }
