@@ -1,0 +1,130 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+// A press outside of a focused TextInput takes the focus away from it, unless the input opted out
+// with `clear-focus-on-outside-press: false`. The focus lands on the nearest enclosing FocusScope,
+// or is cleared when the input isn't in one.
+
+export component TestCase inherits Window {
+    width: 300px;
+    height: 200px;
+
+    scope := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 150px;
+        height: 200px;
+
+        scoped := TextInput {
+            x: 0px;
+            y: 0px;
+            width: 150px;
+            height: 50px;
+        }
+
+        TouchArea {
+            x: 0px;
+            y: 50px;
+            width: 150px;
+            height: 50px;
+        }
+
+        keep := TextInput {
+            x: 0px;
+            y: 100px;
+            width: 150px;
+            height: 50px;
+            clear-focus-on-outside-press: false;
+        }
+    }
+
+    unscoped := TextInput {
+        x: 150px;
+        y: 0px;
+        width: 150px;
+        height: 50px;
+    }
+
+    TouchArea {
+        x: 150px;
+        y: 50px;
+        width: 150px;
+        height: 50px;
+    }
+
+    // an interactive Flickable delays the press to tell a flick from a click, so the press is
+    // dispatched to the Flickable and not to the input it landed on
+    Flickable {
+        x: 150px;
+        y: 100px;
+        width: 150px;
+        height: 100px;
+        viewport-height: 300px;
+
+        flicked := TextInput {
+            x: 0px;
+            y: 0px;
+            width: 150px;
+            height: 50px;
+        }
+    }
+
+    out property scoped-has-focus <=> scoped.has-focus;
+    out property keep-has-focus <=> keep.has-focus;
+    out property unscoped-has-focus <=> unscoped.has-focus;
+    out property flicked-has-focus <=> flicked.has-focus;
+    out property scope-has-focus <=> scope.has-focus;
+    out property <bool> any-text-input-focused: TextInputInterface.text-input-focused;
+}
+
+/*
+```rust
+use slint::{LogicalPosition, platform::PointerEventButton, platform::WindowEvent};
+
+let instance = TestCase::new().unwrap();
+
+// a press inside the input focuses it
+slint_testing::send_mouse_click(&instance, 75., 25.);
+assert!(instance.get_scoped_has_focus());
+
+// a press on the TouchArea next to it hands the focus to the enclosing FocusScope
+slint_testing::send_mouse_click(&instance, 75., 75.);
+assert!(!instance.get_scoped_has_focus());
+assert!(instance.get_scope_has_focus());
+assert!(!instance.get_any_text_input_focused());
+
+// an input that opted out keeps the focus
+slint_testing::send_mouse_click(&instance, 75., 125.);
+assert!(instance.get_keep_has_focus());
+slint_testing::send_mouse_click(&instance, 75., 75.);
+assert!(instance.get_keep_has_focus());
+
+// a press moving the focus into another input isn't undone by the blur
+slint_testing::send_mouse_click(&instance, 75., 25.);
+assert!(instance.get_scoped_has_focus());
+assert!(!instance.get_keep_has_focus());
+
+// without an enclosing FocusScope the focus is cleared
+slint_testing::send_mouse_click(&instance, 225., 25.);
+assert!(instance.get_unscoped_has_focus());
+assert!(!instance.get_scoped_has_focus());
+slint_testing::send_mouse_click(&instance, 225., 75.);
+assert!(!instance.get_unscoped_has_focus());
+assert!(!instance.get_any_text_input_focused());
+
+// a press within the input's own geometry keeps the focus, even when it is delivered to an
+// ancestor (here the Flickable) instead of to the input
+slint_testing::send_mouse_click(&instance, 225., 125.);
+assert!(instance.get_flicked_has_focus());
+instance.window().dispatch_event(WindowEvent::PointerPressed {
+    position: LogicalPosition::new(225., 125.),
+    button: PointerEventButton::Left,
+});
+assert!(instance.get_flicked_has_focus());
+instance.window().dispatch_event(WindowEvent::PointerReleased {
+    position: LogicalPosition::new(225., 125.),
+    button: PointerEventButton::Left,
+});
+assert!(instance.get_flicked_has_focus());
+```
+*/

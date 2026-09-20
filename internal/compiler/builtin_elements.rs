@@ -2349,6 +2349,12 @@ fn build(l: &mut Loader) {
         in property <bool> single-line: true;
         /// When set to `true`, text editing via keyboard and mouse is disabled but selecting text is still enabled as well as editing text programmatically.
         in property <bool> read-only: false;
+        /// When set to `true` (the default), a mouse press outside of this element takes the keyboard
+        /// focus away from it, the way text fields lose the focus on an outside click on desktop
+        /// platforms. The focus then moves to the nearest enclosing `FocusScope`, so that key handling
+        /// attached there keeps working, or is cleared when there's no such scope. Set this to `false`
+        /// to keep the focus until it is moved explicitly.
+        in property <bool> clear-focus-on-outside-press: true;
         // Internal, undocumented property, only exposed for IME.
         out property <string> preedit-text;
         /// The design metrics of the font scaled to the font pixel size used by the element.

@@ -943,6 +943,17 @@ impl WindowInner {
 
         let pressed_event = matches!(event, MouseEvent::Pressed { .. });
         let released_event = matches!(event, MouseEvent::Released { .. });
+        // for the focus handling on an outside press, see the end of this function
+        let press_takes_focus_from = if pressed_event {
+            self.focus_item
+                .borrow()
+                .upgrade()
+                .filter(|focused| {
+                    crate::items::press_takes_focus_from(focused, event.position())
+                })
+        } else {
+            None
+        };
         let had_delay = mouse_input_state.has_delayed_event();
 
         let last_top_item = mouse_input_state.top_item_including_delayed();
@@ -1133,6 +1144,27 @@ impl WindowInner {
             // `has_drag` and the docstring ("none when no drag is hovering").
             if let Some(target) = target {
                 target.as_pin_ref().current_action.set(crate::items::DragAction::None);
+            }
+        }
+
+        // An item that gives up the focus on an outside press (a TextInput with
+        // `clear-focus-on-outside-press`) does so now, unless dispatching the press already moved
+        // the focus somewhere else, for example into another input. Focus goes to the nearest
+        // enclosing FocusScope so that key handling attached there (shortcuts) keeps working, and
+        // is cleared when the item isn't inside any scope.
+        if let Some(focused) = press_takes_focus_from
+            && self.focus_item.borrow().upgrade().as_ref() == Some(&focused)
+        {
+            let mut scope = focused.parent_item(ParentItemTraversalMode::StopAtPopups);
+            while let Some(item) = &scope {
+                if crate::items::focus_scope_accepting_press(item) {
+                    break;
+                }
+                scope = item.parent_item(ParentItemTraversalMode::StopAtPopups);
+            }
+            match scope {
+                Some(scope) => self.set_focus_item(&scope, true, FocusReason::PointerClick),
+                None => self.set_focus_item(&focused, false, FocusReason::PointerClick),
             }
         }
 

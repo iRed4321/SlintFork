@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
 
 use super::{
-    EventResult, FocusReasonArg, Item, ItemConsts, ItemRc, ItemRendererRef, KeyEventArg,
+    EventResult, FocusReasonArg, Item, ItemConsts, ItemRc, ItemRef, ItemRendererRef, KeyEventArg,
     PointerEvent, PointerEventArg, PointerEventButton, PointerEventKind, PointerScrollEvent,
     PointerScrollEventArg, RenderingResult, VoidArg,
 };
@@ -572,6 +572,14 @@ pub struct FocusScope {
     pub key_bindings: MaybeKeyBindingList,
     /// FIXME: remove this
     pub cached_rendering_data: CachedRenderingData,
+}
+
+/// Whether `item` is a `FocusScope` that can take the keyboard focus when a press elsewhere takes
+/// it away from one of its descendants (see `press_takes_focus_from`). A scope that doesn't accept
+/// focus, or doesn't accept it from a click, is skipped so that the focus keeps travelling up.
+pub fn focus_scope_accepting_press(item: &ItemRc) -> bool {
+    ItemRef::downcast_pin::<FocusScope>(item.borrow())
+        .is_some_and(|scope| scope.enabled() && scope.focus_on_click())
 }
 
 impl FocusScope {

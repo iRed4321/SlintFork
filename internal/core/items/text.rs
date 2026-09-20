@@ -951,6 +951,7 @@ pub struct TextInput {
     pub key_released: Callback<KeyEventArg, EventResult>,
     pub single_line: Property<bool>,
     pub read_only: Property<bool>,
+    pub clear_focus_on_outside_press: Property<bool>,
     pub preedit_text: Property<SharedString>,
     /// A selection within the preedit (cursor and anchor)
     preedit_selection: Property<PreEditSelection>,
@@ -2748,6 +2749,32 @@ pub unsafe extern "C" fn slint_textinput_redo(
         let self_rc = ItemRc::new(self_component.clone(), self_index);
         text_input.redo(window_adapter, &self_rc);
     }
+}
+
+/// Whether a mouse press at `position` should take the keyboard focus away from `item`, which is
+/// the item that currently has the focus.
+///
+/// Only a `TextInput` with `clear-focus-on-outside-press` set gives up the focus this way, and only
+/// for a press that lands outside of its own geometry. `position` is in the coordinate system of
+/// the window the press was delivered to, like the position of the `MouseEvent`; `None` (a press
+/// without a position) never clears the focus.
+///
+/// This deliberately compares against the geometry rather than against the item the press was
+/// dispatched to: a press over the input can be delivered to an ancestor instead (an interactive
+/// `Flickable` delays it to tell a flick from a click), and that must not count as an outside press.
+pub fn press_takes_focus_from(item: &ItemRc, position: Option<LogicalPoint>) -> bool {
+    let Some(text_input) = ItemRef::downcast_pin::<TextInput>(item.borrow()) else {
+        return false;
+    };
+    if !text_input.clear_focus_on_outside_press() {
+        return false;
+    }
+    let Some(position) = position else {
+        return false;
+    };
+    let geometry = item.geometry();
+    let origin = item.map_to_native_window(geometry.origin);
+    !LogicalRect::new(origin, geometry.size).contains(position)
 }
 
 pub fn slint_text_item_fontmetrics(
