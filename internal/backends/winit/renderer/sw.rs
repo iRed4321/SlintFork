@@ -3,7 +3,6 @@
 
 //! Delegate the rendering to the [`i_slint_renderer_software::SoftwareRenderer`]
 
-use core::num::NonZeroU32;
 use core::ops::DerefMut;
 use i_slint_core::graphics::Rgb8Pixel;
 use i_slint_core::platform::PlatformError;
@@ -149,23 +148,21 @@ impl super::WinitCompatibleRenderer for WinitSoftwareRenderer {
             })
         };
 
-        let damage = region
-            .iter()
-            .filter_map(|(pos, size)| {
-                Some(softbuffer::Rect {
-                    x: pos.x as u32,
-                    y: pos.y as u32,
-                    width: NonZeroU32::new(size.width)?,
-                    height: NonZeroU32::new(size.height)?,
-                })
-            })
-            .collect::<Vec<_>>();
-        if !damage.is_empty() {
-            winit_window.pre_present_notify();
-            target_buffer
-                .present_with_damage(&damage)
-                .map_err(|e| format!("Error presenting softbuffer buffer: {e}"))?;
-        }
+        // Partial *rendering* stays (only `region` was redrawn into the
+        // persistent buffer), but the *present* is always the whole buffer.
+        // Presenting only the damaged rectangle assumes the window surface
+        // still holds the previous frame — and the OS drops that surface
+        // behind our back: a DPI change when the window crosses monitors, a
+        // snap, an un-minimize. After that, a damage-only present left every
+        // other pixel at alpha 0 (see-through on an undecorated window with
+        // the DWM frame extended into the client area) until something
+        // happened to dirty it. A full blit is cheap (memcpy-class) and makes
+        // the window always match the buffer. This also covers redraws the OS
+        // asks for with nothing dirty on our side (`region` empty), which
+        // previously presented nothing at all.
+        let _ = region;
+        winit_window.pre_present_notify();
+        target_buffer.present().map_err(|e| format!("Error presenting softbuffer buffer: {e}"))?;
         Ok(DrawOutcome::Success)
     }
 
