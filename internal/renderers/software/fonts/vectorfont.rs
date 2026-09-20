@@ -203,6 +203,11 @@ impl VectorFont {
                     .builder(font_ref)
                     .size(self.pixel_size.get() as f32)
                     .normalized_coords(&self.normalized_coords)
+                    // Hint outlines to the pixel grid: unhinted grayscale AA
+                    // leaves small UI text (10–13px) visibly soft compared to
+                    // the platform's own rendering, especially on Windows
+                    // where users are used to ClearType-crisp stems.
+                    .hint(true)
                     .build();
                 let image = swash::scale::Render::new(&[swash::scale::Source::Outline])
                     .format(swash::zeno::Format::Alpha)
