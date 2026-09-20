@@ -755,6 +755,13 @@ impl FlickableData {
                 }
             }
             MouseEvent::Wheel { position, delta_x, delta_y, phase } => {
+                // Ctrl+wheel is reserved (by app convention, e.g. for zoom) rather than
+                // scrolling; don't claim it here so it can bubble up to whatever ancestor
+                // wants it instead of always being consumed by whichever Flickable happens
+                // to be under the cursor.
+                if window_adapter.window().0.context().0.modifiers.get().control() {
+                    return InputEventFilterResult::ForwardEvent;
+                }
                 match phase {
                     TouchPhase::Started => {
                         inner.wheel_gesture_start = Some(crate::animations::current_tick())
@@ -939,6 +946,9 @@ impl FlickableData {
                 }
             }
             MouseEvent::Wheel { delta_x, delta_y, position, phase } => {
+                if window_adapter.window().0.context().0.modifiers.get().control() {
+                    return InputEventResult::EventIgnored;
+                }
                 let delta = Self::scroll_delta(window_adapter, *delta_x, *delta_y);
                 inner.process_wheel_event(flick, delta, *position, *phase, flick_rc)
             }
