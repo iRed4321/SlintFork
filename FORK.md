@@ -36,6 +36,19 @@ content rebuilt on upstream's real history.
 
 (Paths are relative to `internal/core/` unless they say otherwise.)
 
+## Backports from upstream
+
+Fixes that upstream made after a release and that this fork needs before the next one. They are
+cherry-picks (`git cherry-pick -x`, so the message names the upstream commit) and sit on top of
+the patches above.
+
+| Upstream commit | Why | Drop when |
+|---|---|---|
+| `42ae7e95d` winit: Don't claim that hiding a window failed when it didn't (#13507) | Slint 1.18.0 keeps a reference to the winit window while it dispatches an event, so closing a window from inside a UI event (the close button) printed "request to hide window failed because references to the window still exist", and left the window registered. Fixed on upstream `master`. | A release contains it (likely 1.18.1). The upgrade script will stop on this commit: `git rebase --skip`. |
+
+Conflict resolved when backporting: 1.18.0's `dispatch_winit_window_event` takes the event by
+value, upstream `master` by reference.
+
 ## Upgrading to a new Slint release
 
 ```sh
@@ -101,4 +114,5 @@ Where the patches broke last time (1.17 -> 1.18), and so where to look first:
   commit (`git commit --fixup <commit>` then `git rebase -i --autosquash <upstream tag>`), so the
   series stays short and each commit stays rebase-able.
 - A feature commit brings its own test when it can have one.
+- Backports (cherry-picks of upstream fixes) go on top of the patches and get a row in "Backports".
 - Never push to `upstream`. Never publish this repository.
