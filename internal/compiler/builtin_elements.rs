@@ -1210,8 +1210,34 @@ fn build(l: &mut Loader) {
         in property <styled-text> text;
         /// The vertical alignment of the text.
         in property <TextVerticalAlignment> vertical-alignment;
+        /// The background color of a read-only text selection made by dragging the mouse over the text.
+        /// Unlike `TextInput`'s property of the same name, this isn't currently wired up to a
+        /// style-provided default (see `apply_default_properties_from_style`) — set it explicitly.
+        in property <color> selection-background-color;
+        // Internal, undocumented property, mostly for tests but also settable so a
+        // host component can clear a stale selection (e.g. when the displayed text
+        // changes) by assigning the same value to both.
+        in-out property <int> cursor-position-byte-offset;
+        // Internal, undocumented property, mostly for tests but also settable so a
+        // host component can clear a stale selection (e.g. when the displayed text
+        // changes) by assigning the same value to both.
+        in-out property <int> anchor-position-byte-offset;
+        /// The currently selected plain text, or "" when nothing is selected — the same text
+        /// Ctrl+C copies. Read-only; follows the selection as it's dragged or cleared.
+        out property <string> selected-text;
         /// A callback that's invoked when a link in the text is clicked. The parameter contains the clicked link as a string.
         callback link-clicked(link: string);
+        /// Fired with the current pointer position (in this item's local coordinates) on every mouse
+        /// move while a drag-selection is in progress. A host component sitting inside a `Flickable`
+        /// can use this to auto-scroll when the drag nears the edge of the visible viewport.
+        callback selection-drag-moved(position: Point);
+        /// Fired when a drag-selection ends (button released, or the pointer leaves the window
+        /// mid-drag), so a host component can stop any edge-of-view auto-scroll it started in
+        /// response to `selection-drag-moved`.
+        callback selection-drag-ended();
+        /// Fired on a plain click (press+release without dragging out a selection, and not on a
+        /// link — that still fires `link-clicked` instead).
+        callback clicked();
     } }
 
     element! {

@@ -1,0 +1,85 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+// Read-only selection of a StyledText: dragging selects, a plain click fires `clicked` and clears
+// the selection, and the drag callbacks tell a host when a drag starts moving and ends.
+
+export component TestCase inherits Window {
+    width: 300px;
+    height: 100px;
+
+    st := StyledText {
+        x: 0px;
+        y: 0px;
+        width: 300px;
+        height: 100px;
+        text: @markdown("Hello **styled** world");
+        selection-background-color: #08f;
+        clicked => {
+            clicks += 1;
+        }
+        selection-drag-moved(position) => {
+            drag-moves += 1;
+        }
+        selection-drag-ended => {
+            drag-ends += 1;
+        }
+    }
+
+    in-out property <int> clicks;
+    in-out property <int> drag-moves;
+    in-out property <int> drag-ends;
+    out property <string> selected-text <=> st.selected-text;
+    in-out property <int> cursor <=> st.cursor-position-byte-offset;
+    in-out property <int> anchor <=> st.anchor-position-byte-offset;
+}
+
+/*
+```rust
+use slint::{LogicalPosition, platform::PointerEventButton, platform::WindowEvent};
+
+let instance = TestCase::new().unwrap();
+let window = instance.window();
+let press = |x: f32, y: f32| {
+    window.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(x, y) });
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: LogicalPosition::new(x, y),
+        button: PointerEventButton::Left,
+    });
+};
+let release = |x: f32, y: f32| {
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: LogicalPosition::new(x, y),
+        button: PointerEventButton::Left,
+    });
+};
+
+// nothing is selected to begin with
+assert_eq!(instance.get_selected_text(), "");
+
+// dragging from the start of the line to well past its end selects all of the plain text, which
+// is what Ctrl+C copies (styling is dropped)
+press(1., 5.);
+window.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(295., 5.) });
+assert_eq!(instance.get_selected_text(), "Hello styled world");
+assert_eq!(instance.get_drag_moves(), 1);
+release(295., 5.);
+assert_eq!(instance.get_drag_ends(), 1);
+assert_eq!(instance.get_clicks(), 0, "a drag isn't a click");
+assert_eq!(instance.get_selected_text(), "Hello styled world");
+
+// a plain click clears the selection and fires `clicked`
+press(1., 5.);
+release(1., 5.);
+assert_eq!(instance.get_selected_text(), "");
+assert_eq!(instance.get_clicks(), 1);
+
+// a host can clear a selection by making both offsets equal
+press(1., 5.);
+window.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(295., 5.) });
+release(295., 5.);
+assert_ne!(instance.get_selected_text(), "");
+instance.set_anchor(instance.get_cursor());
+assert_eq!(instance.get_selected_text(), "");
+```
+*/

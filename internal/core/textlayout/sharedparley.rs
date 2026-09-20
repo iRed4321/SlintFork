@@ -213,13 +213,23 @@ pub fn draw_text(
             };
 
             if render {
+                // Read-only selection highlight (e.g. for `StyledTextItem`, which has no other
+                // text-editing machinery). Painted as plain background rectangles, behind the
+                // glyphs drawn below, and deliberately without recoloring the selected glyphs
+                // (`None` below), so styled/colored runs keep their own color under it.
+                if let Some((selection_range, background)) = text.selection() {
+                    let spans = layout
+                        .selection_geometry(selection_range, &draw::visible_band(item_renderer));
+                    for rect in spans.backgrounds() {
+                        item_renderer.fill_rectangle_with_color(rect, background);
+                    }
+                }
+
                 layout.draw(
                     item_renderer,
                     platform_fill_brush,
                     platform_stroke_brush,
                     text_color,
-                    // `Text` has no selection today; the machinery is shared so wiring one up
-                    // later is a matter of passing spans here.
                     None,
                 );
             }
@@ -683,6 +693,67 @@ fn text_input_byte_offset_for_position_impl(
     )
     .unwrap_or(no_hit);
     (visual_representation.map_byte_offset_from_visual_text_to_actual_text(byte_offset), affinity)
+}
+
+/// Same as [`text_input_byte_offset_for_position`], but for any `RenderText` item (plain or
+/// styled) rather than specifically `TextInput` -- used for read-only drag-to-select
+/// hit-testing, e.g. on `StyledTextItem`. It lays the text out exactly like `draw_text` does, so
+/// it shares that item's cache entry.
+pub fn render_text_byte_offset_for_position(
+    renderer: &(impl RendererSealed + ?Sized),
+    text: Pin<&dyn crate::item_rendering::RenderText>,
+    item_rc: &crate::item_tree::ItemRc,
+    pos: LogicalPoint,
+    cache: Option<&TextLayoutCache>,
+) -> usize {
+    render_text_byte_offset_for_position_impl(
+        renderer.scale_factor(),
+        renderer.window_adapter(),
+        text,
+        item_rc,
+        pos,
+        cache,
+    )
+}
+
+fn render_text_byte_offset_for_position_impl(
+    scale_factor: Option<ScaleFactor>,
+    window_adapter: Option<Rc<dyn WindowAdapter>>,
+    text: Pin<&dyn crate::item_rendering::RenderText>,
+    item_rc: &crate::item_tree::ItemRc,
+    pos: LogicalPoint,
+    cache: Option<&TextLayoutCache>,
+) -> usize {
+    let (Some(scale_factor), Some(window_adapter)) = (scale_factor, window_adapter) else {
+        return 0;
+    };
+    let pos: PhysicalPoint = pos * scale_factor;
+
+    let size = text.target_size();
+    if size.width_length().get() <= 0. || size.height_length().get() <= 0. || pos.y < 0. {
+        return 0;
+    }
+
+    let layout_builder = shaping_builder(text, Some(item_rc), text.wrap(), scale_factor);
+    let (horizontal_align, vertical_align) = text.alignment();
+
+    with_text_layout(
+        cache,
+        Some(item_rc),
+        text,
+        &layout_builder,
+        LayoutOptions {
+            horizontal_align,
+            vertical_align,
+            max_height: Some(size.height_length()),
+            max_width: Some(size.width_length()),
+            max_lines: text.line_limit(),
+            text_overflow: text.overflow(),
+        },
+        window_adapter.window(),
+        |layout| layout.byte_offset_from_point(pos).0,
+    )
+    .unwrap_or(0)
 }
 
 pub fn text_input_cursor_rect_for_byte_offset(

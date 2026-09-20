@@ -506,6 +506,14 @@ pub trait RenderText: RenderString {
     fn wrap(self: Pin<&Self>) -> TextWrap;
     fn overflow(self: Pin<&Self>) -> TextOverflow;
     fn is_markdown(self: Pin<&Self>) -> bool;
+
+    /// The current (byte-offset) selection range and the background color it should be
+    /// painted with, if this item has an active, non-empty text selection. Read-only
+    /// selection support (drag-to-select, highlight, copy) for items that don't otherwise
+    /// support text editing, such as `StyledTextItem`, is layered on top of this.
+    fn selection(self: Pin<&Self>) -> Option<(core::ops::Range<usize>, Color)> {
+        None
+    }
 }
 
 impl HasFont for (SharedString, Brush) {

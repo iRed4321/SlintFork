@@ -308,11 +308,23 @@ pub(super) fn create_text_paragraphs(
             }
         }
         PlainOrStyledText::Styled(rich_text) => {
-            for paragraph in rich_text.paragraphs {
+            // Track a running byte offset across paragraphs so `range` lines up with the
+            // flattened string `styled_text::get_raw_text()` produces (paragraphs joined by a
+            // single '\n'). This is what lets `Layout::selection_geometry` /
+            // `byte_offset_from_point` (paragraph-generic already) work for styled text: without
+            // real ranges here every paragraph would collapse to the same `0..0` span.
+            let mut start = 0usize;
+            for (i, paragraph) in rich_text.paragraphs.into_iter().enumerate() {
+                if i > 0 {
+                    start += 1; // the joining '\n' get_raw_text() inserts between paragraphs
+                }
+                let end = start + paragraph.text.len();
+                let range = start..end;
+                start = end;
                 paragraphs.push(paragraph_from_text(
                     font_context,
                     &paragraph.text,
-                    0..0,
+                    range,
                     paragraph.formatting,
                     paragraph.links,
                 ));

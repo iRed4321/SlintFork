@@ -222,6 +222,34 @@ pub trait RendererSealed {
         )
     }
 
+    /// Same as [`Self::text_input_byte_offset_for_position`], but for any item that renders
+    /// text via [`crate::item_rendering::RenderText`] rather than specifically a `TextInput` —
+    /// used for read-only text selection (e.g. `StyledTextItem`) that doesn't have the rest of
+    /// `TextInput`'s editing machinery. The default implementation uses the shared parley text
+    /// layout with [`Self::text_layout_cache`].
+    fn render_text_byte_offset_for_position(
+        &self,
+        text: Pin<&dyn crate::item_rendering::RenderText>,
+        item_rc: &ItemRc,
+        pos: LogicalPoint,
+    ) -> usize {
+        #[cfg(feature = "shared-parley")]
+        {
+            crate::textlayout::sharedparley::render_text_byte_offset_for_position(
+                self,
+                text,
+                item_rc,
+                pos,
+                self.text_layout_cache(),
+            )
+        }
+        #[cfg(not(feature = "shared-parley"))]
+        {
+            let _ = (text, item_rc, pos);
+            0
+        }
+    }
+
     /// That's the opposite of [`Self::text_input_byte_offset_for_position`]
     /// It takes a (UTF-8) byte offset in the text property, and returns a Rectangle
     /// left to the char. It is one logical pixel wide and ends at the baseline.

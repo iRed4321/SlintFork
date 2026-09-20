@@ -249,11 +249,49 @@ pub struct StyledTextItem {
     pub max_lines: Property<i32>,
     pub link_clicked: Callback<StringArg>,
     pub link_color: Property<Color>,
+    /// Read-only text selection (drag-to-select/highlight/copy; no editing). Byte offsets are
+    /// into the flattened string `styled_text::get_raw_text()` returns for `text`.
+    pub cursor_position_byte_offset: Property<i32>,
+    pub anchor_position_byte_offset: Property<i32>,
+    pub selection_background_color: Property<Color>,
+    /// The currently selected plain text ("" when the selection is empty) — the same slice
+    /// Ctrl+C copies. Derived: bound in `init` to `text` and the two offsets, so it also
+    /// tracks a host clearing the selection by resetting the offsets.
+    pub selected_text: Property<SharedString>,
+    /// Fired with the raw pointer position (in this item's local coordinates) on every mouse
+    /// move while a drag-selection is in progress. Lets a host component implement edge-of-view
+    /// auto-scroll, since the item itself has no notion of the `Flickable` it may be sitting in.
+    pub selection_drag_moved: Callback<PointArg>,
+    /// Fired when a drag-selection ends (button released, or the pointer leaves the window
+    /// mid-drag), so a host component can stop any edge-of-view auto-scroll it started in
+    /// response to `selection_drag_moved`.
+    pub selection_drag_ended: Callback<VoidArg>,
+    /// Fired on a plain click (press+release without dragging out a selection, and not on a
+    /// link — that still fires `link_clicked` instead).
+    pub clicked: Callback<VoidArg>,
     pub cached_rendering_data: CachedRenderingData,
+    /// Whether the left mouse button is currently held down, dragging out a selection.
+    dragging: Cell<bool>,
 }
 
 impl Item for StyledTextItem {
-    fn init(self: Pin<&Self>, _self_rc: &ItemRc) {}
+    fn init(self: Pin<&Self>, self_rc: &ItemRc) {
+        // `selected_text` is a derived property: a binding over `text` and the selection
+        // offsets, reaching the item back through a weak reference (bindings must be 'static).
+        let weak = self_rc.downgrade();
+        Self::FIELD_OFFSETS.selected_text().apply_pin(self).set_binding(move || {
+            let Some(item_rc) = weak.upgrade() else { return SharedString::default() };
+            let Some(item) = item_rc.downcast::<StyledTextItem>() else { return SharedString::default() };
+            let item = item.as_pin_ref();
+            let (start, end) = item.selection_byte_range();
+            if start == end {
+                return SharedString::default();
+            }
+            let styled_text = item.text();
+            let text = crate::styled_text::get_raw_text(&styled_text);
+            SharedString::from(&text[start..end])
+        });
+    }
 
     fn deinit(self: Pin<&Self>, _window_adapter: &Rc<dyn WindowAdapter>) {}
 
@@ -306,28 +344,87 @@ impl Item for StyledTextItem {
                 None,
             )
         };
+        #[cfg(feature = "shared-parley")]
+        let byte_offset_for_position = |position: &LogicalPoint| {
+            window_adapter.renderer().render_text_byte_offset_for_position(self, self_rc, *position)
+                as i32
+        };
         match event {
+            // A plain click starts a selection (collapsed until the pointer moves); dragging is
+            // what turns it into a real one. We don't fire `link_clicked` here, only on release,
+            // and only if the click didn't turn into a drag-select — see below.
             #[cfg(feature = "shared-parley")]
-            MouseEvent::Released {
-                position,
-                button: PointerEventButton::Left,
-                click_count: _,
-                touch_finger_id: _,
-            } => {
-                if let Some(link) = find_link(position) {
+            MouseEvent::Pressed { position, button: PointerEventButton::Left, .. } => {
+                let offset = byte_offset_for_position(position);
+                self.as_ref().anchor_position_byte_offset.set(offset);
+                self.as_ref().cursor_position_byte_offset.set(offset);
+                self.as_ref().dragging.set(true);
+                WindowInner::from_pub(window_adapter.window()).set_focus_item(
+                    self_rc,
+                    true,
+                    FocusReason::PointerClick,
+                );
+                InputEventResult::GrabMouse
+            }
+            #[cfg(feature = "shared-parley")]
+            MouseEvent::Released { position, button: PointerEventButton::Left, .. } => {
+                let was_dragging = self.as_ref().dragging.get();
+                self.as_ref().dragging.set(false);
+                let (anchor, cursor_pos) = self.selection_byte_range();
+                if anchor != cursor_pos {
+                    // A real selection was dragged out: copy it to the primary selection (as
+                    // TextInput does on release) rather than treating this as a link click.
+                    self.copy_selection(window_adapter, Clipboard::SelectionClipboard);
+                } else if let Some(link) = find_link(position) {
                     *cursor = super::MouseCursorInner::BuiltIn(super::BuiltInMouseCursor::Pointer);
                     Self::FIELD_OFFSETS.link_clicked().apply_pin(self).call(&(link.into(),));
+                } else {
+                    Self::FIELD_OFFSETS.clicked().apply_pin(self).call(&());
+                }
+                if was_dragging {
+                    Self::FIELD_OFFSETS.selection_drag_ended().apply_pin(self).call(&());
                 }
                 InputEventResult::EventAccepted
             }
             #[cfg(feature = "shared-parley")]
-            MouseEvent::Moved { position, .. }
-            | MouseEvent::Pressed { position, .. }
-            | MouseEvent::Released { position, .. } => {
+            MouseEvent::Moved { position, .. } if self.as_ref().dragging.get() => {
+                let offset = byte_offset_for_position(position);
+                self.as_ref().cursor_position_byte_offset.set(offset);
+                Self::FIELD_OFFSETS
+                    .selection_drag_moved()
+                    .apply_pin(self)
+                    .call(&(crate::api::LogicalPosition::from_euclid(*position),));
+                InputEventResult::GrabMouse
+            }
+            #[cfg(feature = "shared-parley")]
+            MouseEvent::Exit => {
+                let was_dragging = self.as_ref().dragging.get();
+                self.as_ref().dragging.set(false);
+                if was_dragging {
+                    Self::FIELD_OFFSETS.selection_drag_ended().apply_pin(self).call(&());
+                }
+                InputEventResult::EventAccepted
+            }
+            #[cfg(feature = "shared-parley")]
+            MouseEvent::Moved { position, .. } => {
                 if find_link(position).is_some() {
                     *cursor = super::MouseCursorInner::BuiltIn(super::BuiltInMouseCursor::Pointer);
                 }
                 InputEventResult::EventAccepted
+            }
+            // Presses/releases of any button other than the left one (handled above) are
+            // only claimed over a link; elsewhere they're left for the surrounding elements
+            // — so a host `TouchArea` wrapping this item can, for instance, offer a
+            // context menu on right-click, which an unconditional accept here used to
+            // make impossible.
+            #[cfg(feature = "shared-parley")]
+            MouseEvent::Pressed { position, .. } | MouseEvent::Released { position, .. } => {
+                if find_link(position).is_some() {
+                    *cursor = super::MouseCursorInner::BuiltIn(super::BuiltInMouseCursor::Pointer);
+                    InputEventResult::EventAccepted
+                } else {
+                    InputEventResult::EventIgnored
+                }
             }
             _ => InputEventResult::EventIgnored,
         }
@@ -344,20 +441,35 @@ impl Item for StyledTextItem {
 
     fn key_event(
         self: Pin<&Self>,
-        _: &InternalKeyEvent,
-        _window_adapter: &Rc<dyn WindowAdapter>,
+        event: &InternalKeyEvent,
+        window_adapter: &Rc<dyn WindowAdapter>,
         _self_rc: &ItemRc,
     ) -> KeyEventResult {
+        if event.event_type == KeyEventType::KeyPressed
+            && matches!(event.shortcut(), Some(StandardShortcut::Copy))
+        {
+            self.copy_selection(window_adapter, Clipboard::DefaultClipboard);
+            return KeyEventResult::EventAccepted;
+        }
         KeyEventResult::EventIgnored
     }
 
     fn focus_event(
         self: Pin<&Self>,
-        _: &FocusEvent,
+        event: &FocusEvent,
         _window_adapter: &Rc<dyn WindowAdapter>,
         _self_rc: &ItemRc,
     ) -> FocusEventResult {
-        FocusEventResult::FocusIgnored
+        if let FocusEvent::FocusOut(reason) = event
+            && !matches!(reason, FocusReason::WindowActivation | FocusReason::PopupActivation)
+        {
+            // Collapse rather than clear: mirrors TextInput's own blur behavior, and keeps the
+            // (now invisible) selection available to extend from if focus returns via keyboard.
+            self.as_ref()
+                .anchor_position_byte_offset
+                .set(self.as_ref().cursor_position_byte_offset());
+        }
+        FocusEventResult::FocusAccepted
     }
 
     fn render(
@@ -445,6 +557,11 @@ impl RenderText for StyledTextItem {
     fn is_markdown(self: Pin<&Self>) -> bool {
         true
     }
+
+    fn selection(self: Pin<&Self>) -> Option<(core::ops::Range<usize>, Color)> {
+        let (start, end) = self.selection_byte_range();
+        (start != end).then(|| (start..end, self.selection_background_color()))
+    }
 }
 
 impl StyledTextItem {
@@ -455,6 +572,43 @@ impl StyledTextItem {
     ) -> FontMetrics {
         let font_request = self.font_request(self_rc);
         window_adapter.renderer().font_metrics(font_request)
+    }
+
+    /// Anchor/cursor byte offsets into `styled_text::get_raw_text(&self.text())`, ordered as
+    /// `start..end` (mouse drag direction is arbitrary, so anchor can land after cursor) and
+    /// clamped to the current text. The clamp matters because `text` can be swapped out from
+    /// outside (e.g. selecting a different key in a JSON viewer) without going through any of
+    /// the mouse code below that sets these properties, which would otherwise leave stale,
+    /// possibly out-of-bounds or mid-character offsets from the previous text.
+    fn selection_byte_range(self: Pin<&Self>) -> (usize, usize) {
+        let styled_text = self.text();
+        let text = crate::styled_text::get_raw_text(&styled_text);
+        let len = text.len();
+        let clamp = |offset: i32| -> usize {
+            let mut i = (offset.max(0) as usize).min(len);
+            while i > 0 && !text.is_char_boundary(i) {
+                i -= 1;
+            }
+            i
+        };
+        let anchor = clamp(self.anchor_position_byte_offset());
+        let cursor = clamp(self.cursor_position_byte_offset());
+        if anchor <= cursor { (anchor, cursor) } else { (cursor, anchor) }
+    }
+
+    /// Copies the current selection (if non-empty) to the clipboard as plain text — styling
+    /// isn't preserved, matching `TextInput`'s own copy behavior.
+    fn copy_selection(self: Pin<&Self>, window_adapter: &Rc<dyn WindowAdapter>, clipboard: Clipboard) {
+        let (start, end) = self.selection_byte_range();
+        if start == end {
+            return;
+        }
+        let styled_text = self.text();
+        let text = crate::styled_text::get_raw_text(&styled_text);
+        WindowInner::from_pub(window_adapter.window())
+            .context()
+            .platform()
+            .set_clipboard_text(&text[start..end], clipboard);
     }
 }
 
