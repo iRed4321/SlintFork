@@ -42,12 +42,9 @@ Fixes that upstream made after a release and that this fork needs before the nex
 cherry-picks (`git cherry-pick -x`, so the message names the upstream commit) and sit on top of
 the patches above.
 
-| Upstream commit | Why | Drop when |
-|---|---|---|
-| `42ae7e95d` winit: Don't claim that hiding a window failed when it didn't (#13507) | Slint 1.18.0 keeps a reference to the winit window while it dispatches an event, so closing a window from inside a UI event (the close button) printed "request to hide window failed because references to the window still exist", and left the window registered. Fixed on upstream `master`. | A release contains it (likely 1.18.1). The upgrade script will stop on this commit: `git rebase --skip`. |
-
-Conflict resolved when backporting: 1.18.0's `dispatch_winit_window_event` takes the event by
-value, upstream `master` by reference.
+None currently. (`42ae7e95d`, the winit hide-window fix backported onto `patched/1.18.0`, landed in
+the 1.18.1 release itself: rebasing onto `v1.18.1` dropped the cherry-pick automatically, as an
+empty commit — no `git rebase --skip` needed, and no conflict either.)
 
 ## Upgrading to a new Slint release
 
