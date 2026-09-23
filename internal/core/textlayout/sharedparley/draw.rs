@@ -133,6 +133,7 @@ impl TextParagraph {
             _ => (line_count.saturating_sub(1), false),
         };
 
+        self.draw_span_backgrounds(item_renderer, para_y, last_drawn);
         self.draw_inline_code_backgrounds(item_renderer, para_y, default_text_color, last_drawn);
 
         for (index, line) in self.layout.lines().enumerate() {
@@ -254,6 +255,54 @@ impl TextParagraph {
                     parley::PositionedLayoutItem::InlineBox(_inline_box) => {}
                 };
             }
+        }
+    }
+
+    /// Fills the background of every `Style::Background` range, line by line, under the text.
+    /// The boxes come from parley's selection geometry, so they follow wrapping, bidi
+    /// reordering and ligatures exactly like a selection does, and are not tied to where
+    /// glyph runs happen to split.
+    fn draw_span_backgrounds<R: GlyphRenderer>(
+        &self,
+        item_renderer: &mut R,
+        para_y: PhysicalLength,
+        last_drawn: usize,
+    ) {
+        // Rounded a little, like a marker pen; logical, so it looks the same at every DPI.
+        const RADIUS: LogicalLength = LogicalLength::new(2.0);
+        let radius = RADIUS * item_renderer.scale_factor();
+
+        for (range, color) in &self.background_ranges {
+            let Some(brush) = item_renderer.platform_brush_for_color(color) else {
+                continue;
+            };
+            let cursor = |offset: usize| {
+                parley::editing::Cursor::from_byte_index(
+                    &self.layout,
+                    offset.min(self.range.len()),
+                    Default::default(),
+                )
+            };
+            let selection =
+                parley::editing::Selection::new(cursor(range.start), cursor(range.end));
+            selection.geometry_with(&self.layout, |rect, line| {
+                // Lines past the visible-extent cut don't render their glyphs either.
+                if line > last_drawn {
+                    return;
+                }
+                let x = (rect.x0 as f32).round()..(rect.x1 as f32).round();
+                if x.end <= x.start {
+                    return;
+                }
+                let bg_rect = PhysicalRect::new(
+                    PhysicalPoint::from_lengths(
+                        PhysicalLength::new(x.start),
+                        PhysicalLength::new(rect.y0 as f32) + para_y,
+                    ),
+                    PhysicalSize::new(x.end - x.start, rect.height() as f32),
+                );
+                item_renderer.fill_rectangle(bg_rect, brush.clone(), radius, None);
+            });
         }
     }
 

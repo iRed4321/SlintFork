@@ -222,6 +222,10 @@ impl LayoutWithoutLineBreaksBuilder {
                             span.range,
                         );
                     }
+                    // Painted behind the glyphs by `TextParagraph::draw`, not a text style:
+                    // a parley brush is one value per range, so a background carried in it
+                    // would replace the span's own color where the two overlap.
+                    Style::Background(_) => {}
                     Style::Color(color) => {
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
@@ -288,9 +292,26 @@ pub(super) fn create_text_paragraphs(
                 .map(|s| s.range.clone())
                 .collect();
 
+            let background_ranges: alloc::vec::Vec<(Range<usize>, Color)> = formatting
+                .iter()
+                .filter_map(|s| match s.style {
+                    i_slint_common::styled_text::Style::Background(color) => {
+                        Some((s.range.clone(), Color::from_argb_encoded(color)))
+                    }
+                    _ => None,
+                })
+                .collect();
+
             let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
 
-            TextParagraph { range, y: PhysicalLength::default(), layout, links, code_ranges }
+            TextParagraph {
+                range,
+                y: PhysicalLength::default(),
+                layout,
+                links,
+                code_ranges,
+                background_ranges,
+            }
         };
 
     let mut paragraphs = Vec::with_capacity(1);
@@ -410,4 +431,7 @@ pub(super) struct TextParagraph {
     /// translucent rounded background by `draw` for visual parity with common markdown
     /// renderers.
     pub(super) code_ranges: std::vec::Vec<Range<usize>>,
+    /// Byte ranges within the paragraph's text that carry `Style::Background`, with their
+    /// colors. Filled behind the glyphs by `draw`.
+    pub(super) background_ranges: std::vec::Vec<(Range<usize>, Color)>,
 }

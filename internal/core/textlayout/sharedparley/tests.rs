@@ -293,3 +293,37 @@ fn test_max_lines_caps_height() {
     );
     assert_eq!(limited.height, first_line_bottom);
 }
+
+#[test]
+fn background_spans_are_kept_per_paragraph_and_do_not_recolor_the_text() {
+    let red = Color::from_rgb_u8(255, 0, 0);
+    let yellow = Color::from_rgb_u8(255, 255, 0);
+    let text = crate::styled_text::StyledText::from_highlighted_paragraphs([
+        (std::string::String::from("first line"), std::vec![(0..5, red)], std::vec![(2..7, yellow)]),
+        (std::string::String::from("second"), std::vec![], std::vec![]),
+        (std::string::String::from("third"), std::vec![(0..5, red)], std::vec![(0..5, yellow)]),
+    ]);
+    let mut font_ctx = test_font_context();
+    let paragraphs = create_text_paragraphs(
+        &super::shaping::plain_builder_for_tests(),
+        &mut font_ctx,
+        PlainOrStyledText::Styled(text),
+        Color::default(),
+    );
+    let backgrounds: std::vec::Vec<_> = paragraphs.iter().map(|p| p.background_ranges.clone()).collect();
+    assert_eq!(backgrounds, std::vec![std::vec![(2..7, yellow)], std::vec![], std::vec![(0..5, yellow)]]);
+}
+
+#[test]
+fn from_colored_paragraphs_has_no_backgrounds() {
+    let plain = crate::styled_text::StyledText::from_colored_paragraphs([(
+        std::string::String::from("abc"),
+        std::vec![(0..3, Color::from_rgb_u8(1, 2, 3))],
+    )]);
+    let highlighted = crate::styled_text::StyledText::from_highlighted_paragraphs([(
+        std::string::String::from("abc"),
+        std::vec![(0..3, Color::from_rgb_u8(1, 2, 3))],
+        std::vec![],
+    )]);
+    assert_eq!(plain, highlighted);
+}

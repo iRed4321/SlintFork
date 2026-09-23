@@ -13,6 +13,9 @@ pub enum Style {
     Underline,
     // ARGB encoded
     Color(u32),
+    /// A filled highlight behind the text of the span (ARGB encoded), like a marker
+    /// pen. Not produced by the markdown parser.
+    Background(u32),
 }
 
 #[derive(Clone, Debug, PartialEq)]

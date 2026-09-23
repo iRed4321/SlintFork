@@ -73,16 +73,39 @@ impl StyledText {
             Item = (alloc::string::String, alloc::vec::Vec<(core::ops::Range<usize>, crate::Color)>),
         >,
     ) -> Self {
+        Self::from_highlighted_paragraphs(
+            paragraphs.into_iter().map(|(text, colors)| (text, colors, alloc::vec::Vec::new())),
+        )
+    }
+
+    /// Like [`Self::from_colored_paragraphs`], with a third list per paragraph: byte ranges
+    /// that get a filled background of the given color behind their text, like a marker
+    /// pen. A background may cover text of any colors, and may run across several lines
+    /// when the text wraps.
+    pub fn from_highlighted_paragraphs(
+        paragraphs: impl IntoIterator<
+            Item = (
+                alloc::string::String,
+                alloc::vec::Vec<(core::ops::Range<usize>, crate::Color)>,
+                alloc::vec::Vec<(core::ops::Range<usize>, crate::Color)>,
+            ),
+        >,
+    ) -> Self {
+        use i_slint_common::styled_text::{FormattedSpan, Style};
         let paragraphs: alloc::vec::Vec<i_slint_common::styled_text::StyledTextParagraph> = paragraphs
             .into_iter()
-            .map(|(text, spans)| i_slint_common::styled_text::StyledTextParagraph {
+            .map(|(text, colors, backgrounds)| i_slint_common::styled_text::StyledTextParagraph {
                 text,
-                formatting: spans
+                formatting: colors
                     .into_iter()
-                    .map(|(range, color)| i_slint_common::styled_text::FormattedSpan {
+                    .map(|(range, color)| FormattedSpan {
                         range,
-                        style: i_slint_common::styled_text::Style::Color(color.as_argb_encoded()),
+                        style: Style::Color(color.as_argb_encoded()),
                     })
+                    .chain(backgrounds.into_iter().map(|(range, color)| FormattedSpan {
+                        range,
+                        style: Style::Background(color.as_argb_encoded()),
+                    }))
                     .collect(),
                 links: Default::default(),
             })
