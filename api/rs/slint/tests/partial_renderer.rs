@@ -962,6 +962,64 @@ fn shadow_redraw_beyond_geometry() {
 }
 
 #[test]
+fn backdrop_blur_redraws_as_a_whole() {
+    slint::slint! {
+        export component Ui inherits Window {
+            in property <length> x-pos: 10px;
+            Rectangle {
+                x: root.x-pos;
+                y: 20px;
+                width: 10px;
+                height: 10px;
+                background: red;
+            }
+            Rectangle {
+                x: 50px;
+                y: 10px;
+                width: 100px;
+                height: 40px;
+                background: #fff4;
+                backdrop-blur: 4px;
+            }
+        }
+    }
+
+    slint::platform::set_platform(Box::new(TestPlatform)).ok();
+
+    let window = SKIA_WINDOW.with(|w| w.clone());
+    NEXT_WINDOW_CHOICE.with(|choice| {
+        *choice.borrow_mut() = Some(window.clone());
+    });
+    let ui = Ui::new().unwrap();
+    window.set_size(slint::PhysicalSize::new(250, 250).into());
+    ui.show().unwrap();
+
+    assert!(window.draw_if_needed());
+    assert!(!window.draw_if_needed());
+
+    // Moving far from the blur only repaints the old and new position.
+    ui.set_x_pos(20.);
+    assert!(window.draw_if_needed());
+    assert_eq!(
+        window.last_dirty_region_bounding_box_size(),
+        Some(slint::LogicalSize { width: 20., height: 10. })
+    );
+
+    // Moving next to the blur, within the 3 * 4px it samples beyond its edges, repaints the
+    // whole blur and that margin (clipped to the window at the top).
+    ui.set_x_pos(30.);
+    assert!(window.draw_if_needed());
+    assert_eq!(
+        window.last_dirty_region_bounding_box_origin(),
+        Some(slint::LogicalPosition { x: 20., y: 0. })
+    );
+    assert_eq!(
+        window.last_dirty_region_bounding_box_size(),
+        Some(slint::LogicalSize { width: 142., height: 62. })
+    );
+}
+
+#[test]
 fn text_alignment() {
     slint::slint! {
         export component Ui inherits Window {

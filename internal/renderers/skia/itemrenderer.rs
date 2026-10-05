@@ -868,6 +868,34 @@ impl ItemRenderer for SkiaItemRenderer<'_> {
         }
     }
 
+    fn draw_backdrop_blur(
+        &mut self,
+        backdrop_blur: Pin<&i_slint_core::items::BackdropBlur>,
+        _self_rc: &ItemRc,
+        size: LogicalSize,
+    ) {
+        let sigma = (backdrop_blur.blur() * self.scale_factor).get();
+        if sigma <= 0. {
+            return;
+        }
+        let bounds = to_skia_rect(&PhysicalRect::from_size(size * self.scale_factor));
+        // Skia reads the backdrop around the bounds too, see `BackdropBlur::bounding_rect`.
+        let Some(filter) = skia_safe::image_filters::blur((sigma, sigma), None, None, None) else {
+            return;
+        };
+        self.canvas.save();
+        self.combine_clip(LogicalRect::from_size(size), backdrop_blur.logical_border_radius());
+        let paint = self.default_paint();
+        let mut layer =
+            skia_safe::canvas::SaveLayerRec::default().bounds(&bounds).backdrop(&filter);
+        if let Some(paint) = &paint {
+            layer = layer.paint(paint);
+        }
+        self.canvas.save_layer(&layer);
+        self.canvas.restore();
+        self.canvas.restore();
+    }
+
     fn combine_clip(&mut self, rect: LogicalRect, radius: LogicalBorderRadius) -> bool {
         let rounded_rect =
             to_skia_rrect(&(rect * self.scale_factor), &(radius * self.scale_factor));
@@ -995,7 +1023,14 @@ impl ItemRenderer for SkiaItemRenderer<'_> {
     ) -> RenderingResult {
         let opacity = opacity_item.opacity();
         if Opacity::need_layer(item_rc, opacity) {
-            self.canvas.save_layer_alpha(None, (opacity * 255.) as u32);
+            let mut paint = skia_safe::Paint::default();
+            paint.set_alpha_f(opacity);
+            let mut layer = skia_safe::canvas::SaveLayerRec::default().paint(&paint);
+            // Skia's backdrop filter only reads the layer it's drawn into.
+            if opacity_item.wraps_backdrop_blur() {
+                layer = layer.flags(skia_safe::canvas::SaveLayerFlags::INIT_WITH_PREVIOUS);
+            }
+            self.canvas.save_layer(&layer);
             self.state_stack.push(self.current_state);
             self.current_state.alpha = 1.0;
 
@@ -1250,6 +1285,7 @@ pub fn to_skia_rrect(rect: &PhysicalRect, radius: &PhysicalBorderRadius) -> skia
 
 impl ItemRendererFeatures for SkiaItemRenderer<'_> {
     const SUPPORTS_TRANSFORMATIONS: bool = true;
+    const SUPPORTS_BACKDROP_BLUR: bool = true;
 }
 
 pub fn to_skia_point(point: PhysicalPoint) -> skia_safe::Point {

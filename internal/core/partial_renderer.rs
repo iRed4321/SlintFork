@@ -23,7 +23,9 @@ use crate::item_rendering::{
 use crate::item_tree::{ItemTreeRc, ItemTreeWeak, ItemVisitorResult};
 #[cfg(feature = "path")]
 use crate::items::Path;
-use crate::items::{BoxShadow, Clip, ItemRc, ItemRef, Layer, Opacity, RenderingResult, TextInput};
+use crate::items::{
+    BackdropBlur, BoxShadow, Clip, ItemRc, ItemRef, Layer, Opacity, RenderingResult, TextInput,
+};
 use crate::lengths::{
     ItemTransform, LogicalBorderRadius, LogicalPoint, LogicalPx, LogicalRect, LogicalSize,
     LogicalVector, ScaleFactor,
@@ -472,6 +474,10 @@ impl<'a, T: ItemRenderer + ItemRendererFeatures> PartialRenderer<'a, T> {
         // changing.
         let sibling_counters = RefCell::new(alloc::vec::Vec::<(u16, u16)>::new());
 
+        // A blur reads every pixel beneath it, so it's redrawn as a whole whenever any part
+        // of it is dirty, see the end of this function.
+        let backdrop_blur_rects = RefCell::new(alloc::vec::Vec::<LogicalRect>::new());
+
         impl ComputeDirtyRegionState {
             /// Adjust transform_to_screen and old_transform_to_screen to map from item coordinates
             /// to the screen when using it on a child, specified by its children transform.
@@ -538,6 +544,12 @@ impl<'a, T: ItemRenderer + ItemRendererFeatures> PartialRenderer<'a, T> {
                 if !new_screen_rect.is_empty() {
                     let acc = cache.tree_screen_rects.entry(tree_key).or_default();
                     *acc = acc.union(&new_screen_rect);
+                }
+                if T::SUPPORTS_BACKDROP_BLUR
+                    && !new_screen_rect.is_empty()
+                    && ItemRef::downcast_pin::<BackdropBlur>(item).is_some()
+                {
+                    backdrop_blur_rects.borrow_mut().push(new_screen_rect);
                 }
 
                 match rendering_data.get_entry(&mut cache) {
@@ -697,6 +709,14 @@ impl<'a, T: ItemRenderer + ItemRendererFeatures> PartialRenderer<'a, T> {
                 }
             },
         );
+
+        // Adding one blur's rect can make the region reach another blur.
+        let mut backdrop_blur_rects = backdrop_blur_rects.into_inner();
+        while let Some(index) =
+            backdrop_blur_rects.iter().position(|rect| self.dirty_region.draw_intersects(*rect))
+        {
+            self.dirty_region.add_rect(backdrop_blur_rects.swap_remove(index));
+        }
     }
 
     fn mark_dirty_rect(
@@ -817,6 +837,7 @@ impl<T: ItemRenderer + ItemRendererFeatures> ItemRenderer for PartialRenderer<'_
     #[cfg(feature = "path")]
     forward_rendering_call!(fn draw_path(Path));
     forward_rendering_call!(fn draw_box_shadow(BoxShadow));
+    forward_rendering_call!(fn draw_backdrop_blur(BackdropBlur));
 
     forward_rendering_call!(fn visit_clip(Clip) -> RenderingResult);
     forward_rendering_call!(fn visit_opacity(Opacity) -> RenderingResult);
