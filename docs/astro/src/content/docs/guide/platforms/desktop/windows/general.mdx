@@ -3,6 +3,8 @@ title: Windows
 description: Windows Platform Guide
 ---
 
+{/* cSpell: ignore editbin resedit */}
+
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 We test Slint on these Windows versions and architectures:
@@ -47,6 +49,47 @@ add_executable(my_program ...)
 set_property(TARGET my_program APPEND PROPERTY WIN32_EXECUTABLE TRUE)
 ```
 
+</TabItem>
+
+<TabItem label="NodeJS" icon="node">
+
+`node.exe` uses the console subsystem.
+To start your application without a console window, copy `node.exe` and set the `WINDOWS` subsystem on the copy.
+
+With the Visual Studio C++ tools, use `editbin`.
+It comes with the "Desktop development with C++" workload of Visual Studio,
+or of the free [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+Run it from a Developer PowerShell for Visual Studio:
+
+```powershell
+Copy-Item (Get-Command node).Source my-app.exe
+editbin /SUBSYSTEM:WINDOWS my-app.exe
+```
+
+Without them, use the [`resedit`](https://www.npmjs.com/package/resedit) package from npm.
+Save this script as `set-windows-subsystem.mjs`:
+
+```js
+import * as fs from "node:fs";
+import * as ResEdit from "resedit";
+
+const file = process.argv[2];
+const executable = ResEdit.NtExecutable.from(fs.readFileSync(file), { ignoreCert: true });
+executable.newHeader.optionalHeader.subsystem = 2; // IMAGE_SUBSYSTEM_WINDOWS_GUI
+fs.writeFileSync(file, Buffer.from(executable.generate()));
+```
+
+Then run it on the copy:
+
+```powershell
+npm install --save-dev resedit
+Copy-Item (Get-Command node).Source my-app.exe
+node set-windows-subsystem.mjs my-app.exe
+```
+
+Start your application with `.\my-app.exe main.js`.
+To build an executable that starts your application without arguments,
+see [Package Your Application](https://slint.dev/docs/node/packaging/).
 </TabItem>
 
 <TabItem label="Python" icon="seti:python">
