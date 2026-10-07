@@ -97,7 +97,7 @@ jobs:
                   echo 'import("slint-ui/register").then(() => import("./main.js"));' > start.cjs
                   echo 'require("node:module").createRequire(__filename)("./start.cjs");' > sea-main.cjs
                   if [ "$RUNNER_OS" = "Windows" ]; then
-                      npx --yes create-nodew-exe "$(command -v node)" app-node.exe
+                      npx --yes create-nodew-exe "$(node -p process.execPath)" app-node.exe
                       echo '{ "main": "sea-main.cjs", "executable": "app-node.exe", "output": "home-automation.exe", "disableExperimentalSEAWarning": true }' > sea-config.json
                   else
                       echo '{ "main": "sea-main.cjs", "output": "home-automation", "disableExperimentalSEAWarning": true }' > sea-config.json
