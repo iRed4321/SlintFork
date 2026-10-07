@@ -3,7 +3,7 @@ title: Package Your Application
 description: Ship a Slint application written in JavaScript or TypeScript as a native executable for Windows, macOS, and Linux.
 ---
 
-{/* cSpell: ignore appimagetool codesign editbin entitlements icns Inno MSIX myapp resedit signtool */}
+{/* cSpell: ignore appimagetool codesign editbin entitlements icns Inno MSIX myapp nodew resedit signtool */}
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
@@ -72,12 +72,17 @@ npm ci --omit=dev
 <TabItem label="Windows" icon="seti:windows">
 
 The executable opens a console window, and shows the icon and version information of Node.js.
-Change both on a copy of `node.exe`, made with `Copy-Item (Get-Command node).Source app-node.exe`.
-Then build from that copy with `"executable": "app-node.exe"` in `sea-config.json`.
+Change both on a copy of `node.exe`, and build from that copy with `"executable": "app-node.exe"` in `sea-config.json`.
 
-To start without a console window, set the `WINDOWS` subsystem on the copy, with `editbin` or with `resedit`,
-as described in the [Windows platform guide](https://slint.dev/docs/slint/guide/platforms/desktop/windows/general/).
-Then the output of `console.log()` is lost, so skip this step while you debug.
+To start without a console window, make the copy with [`create-nodew-exe`](https://www.npmjs.com/package/create-nodew-exe),
+or with `editbin` as described in the [Windows platform guide](https://slint.dev/docs/slint/guide/platforms/desktop/windows/general/):
+
+```powershell
+npx create-nodew-exe (Get-Command node).Source app-node.exe
+```
+
+Then the output of `console.log()` is lost.
+While you debug, use a plain copy instead, made with `Copy-Item (Get-Command node).Source app-node.exe`.
 
 To show your application's icon and name in Explorer and Task Manager, use [`resedit-cli`](https://www.npmjs.com/package/resedit-cli):
 
