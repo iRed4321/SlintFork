@@ -92,25 +92,65 @@ jobs:
             - name: Package the home-automation demo as a single executable
               # Follows docs/nodejs/src/content/docs/packaging.mdx.
               shell: bash
-              working-directory: demos/home-automation/node
+              working-directory: demos/home-automation
               run: |
-                  echo 'import("slint-ui/register").then(() => import("./main.js"));' > start.cjs
-                  echo 'require("node:module").createRequire(__filename)("./start.cjs");' > sea-main.cjs
-                  if [ "$RUNNER_OS" = "Windows" ]; then
+                  echo 'import("slint-ui/register").then(() => import("./main.js"));' > node/start.cjs
+                  mkdir -p ../../dist
+                  case "$RUNNER_OS" in
+                  Windows)
+                      echo 'require("node:module").createRequire(__filename)("./node/start.cjs");' > sea-main.cjs
                       npx --yes create-nodew-exe "$(node -p process.execPath)" app-node.exe
                       echo '{ "main": "sea-main.cjs", "executable": "app-node.exe", "output": "home-automation.exe", "disableExperimentalSEAWarning": true }' > sea-config.json
-                  else
+                      node --build-sea sea-config.json
+                      mkdir ../../dist/home-automation
+                      cp -RL home-automation.exe node ui ../../dist/home-automation/
+                      rm -rf ../../dist/home-automation/node/node_modules/.bin
+                      echo "ARTIFACT=dist/home-automation" >> "$GITHUB_ENV"
+                      ;;
+                  macOS)
+                      app="Home Automation.app"
+                      mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/app"
+                      cp -RL node ui "$app/Contents/Resources/app/"
+                      rm -rf "$app/Contents/Resources/app/node/node_modules/.bin"
+                      cat > "$app/Contents/Info.plist" <<'PLIST'
+                  <?xml version="1.0" encoding="UTF-8"?>
+                  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                  <plist version="1.0">
+                  <dict>
+                      <key>CFBundleExecutable</key>
+                      <string>home-automation</string>
+                      <key>CFBundleIdentifier</key>
+                      <string>dev.slint.home-automation</string>
+                      <key>CFBundleName</key>
+                      <string>Home Automation</string>
+                      <key>CFBundlePackageType</key>
+                      <string>APPL</string>
+                      <key>NSHighResolutionCapable</key>
+                      <true/>
+                  </dict>
+                  </plist>
+                  PLIST
+                      echo 'require("node:module").createRequire(__filename)("../Resources/app/node/start.cjs");' > sea-main.cjs
+                      echo '{ "main": "sea-main.cjs", "output": "Home Automation.app/Contents/MacOS/home-automation", "disableExperimentalSEAWarning": true }' > sea-config.json
+                      node --build-sea sea-config.json
+                      codesign --sign - --force "$app"
+                      # ditto keeps the executable permission and the signature.
+                      ditto -c -k --keepParent "$app" ../../dist/home-automation.zip
+                      echo "ARTIFACT=dist/home-automation.zip" >> "$GITHUB_ENV"
+                      ;;
+                  *)
+                      echo 'require("node:module").createRequire(__filename)("./node/start.cjs");' > sea-main.cjs
                       echo '{ "main": "sea-main.cjs", "output": "home-automation", "disableExperimentalSEAWarning": true }' > sea-config.json
-                  fi
-                  node --build-sea sea-config.json
-                  if [ "$RUNNER_OS" = "macOS" ]; then
-                      codesign --sign - --force home-automation
-                  fi
-                  # upload-artifact drops the executable permission. -h follows the workspace link to slint-ui.
-                  tar czhf ../../../home-automation-node.tar.gz --exclude='app-node*' --exclude='sea-*' --exclude=.bin -C .. node ui
+                      node --build-sea sea-config.json
+                      # A tarball, since upload-artifact drops the executable permission.
+                      tar czhf ../../dist/home-automation.tar.gz --exclude=.bin --transform 's,^,home-automation/,' home-automation node ui
+                      echo "ARTIFACT=dist/home-automation.tar.gz" >> "$GITHUB_ENV"
+                      ;;
+                  esac
             - uses: actions/upload-artifact@v7
               with:
                   name: home-automation-node-${{ runner.os }}-${{ runner.arch }}
-                  path: home-automation-node.tar.gz
-                  compression-level: 0
+                  path: ${{ env.ARTIFACT }}
+                  # The Windows folder is the only artifact that isn't compressed already.
+                  compression-level: ${{ runner.os == 'Windows' && 6 || 0 }}
                   retention-days: 7

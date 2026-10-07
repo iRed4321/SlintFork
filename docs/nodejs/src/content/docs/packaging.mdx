@@ -36,6 +36,8 @@ const { createRequire } = require("node:module");
 createRequire(__filename)("./start.cjs");
 ```
 
+The path is relative to the executable, so the executable can also sit above your files, as in `./app/start.cjs`.
+
 Describe the executable in `sea-config.json`.
 On Windows, name the output `myapp.exe`:
 
