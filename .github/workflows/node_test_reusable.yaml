@@ -89,3 +89,39 @@ jobs:
             - name: Test packaging as a single executable application
               working-directory: api/node
               run: pnpm exec vitest run __test__/sea.spec.mts
+            - name: Package the home-automation demo as a single executable
+              # Follows docs/nodejs/src/content/docs/packaging.mdx.
+              shell: bash
+              working-directory: demos/home-automation/node
+              run: |
+                  echo 'import("slint-ui/register").then(() => import("./main.js"));' > start.cjs
+                  echo 'require("node:module").createRequire(__filename)("./start.cjs");' > sea-main.cjs
+                  exe=
+                  [ "$RUNNER_OS" = "Windows" ] && exe=.exe
+                  cp "$(command -v node)" "app-node$exe"
+                  if [ "$RUNNER_OS" = "Windows" ]; then
+                      npm install --prefix "$RUNNER_TEMP/resedit" resedit
+                      cat > "$RUNNER_TEMP/resedit/set-windows-subsystem.mjs" <<'JS'
+                  import * as fs from "node:fs";
+                  import * as ResEdit from "resedit";
+
+                  const file = process.argv[2];
+                  const executable = ResEdit.NtExecutable.from(fs.readFileSync(file), { ignoreCert: true });
+                  executable.newHeader.optionalHeader.subsystem = 2; // IMAGE_SUBSYSTEM_WINDOWS_GUI
+                  fs.writeFileSync(file, Buffer.from(executable.generate()));
+                  JS
+                      node "$RUNNER_TEMP/resedit/set-windows-subsystem.mjs" app-node.exe
+                  fi
+                  echo "{ \"main\": \"sea-main.cjs\", \"executable\": \"app-node$exe\", \"output\": \"home-automation$exe\", \"disableExperimentalSEAWarning\": true }" > sea-config.json
+                  node --build-sea sea-config.json
+                  if [ "$RUNNER_OS" = "macOS" ]; then
+                      codesign --sign - --force home-automation
+                  fi
+                  # upload-artifact drops the executable permission. -h follows the workspace link to slint-ui.
+                  tar czhf ../../../home-automation-node.tar.gz --exclude='app-node*' --exclude='sea-*' --exclude=.bin -C .. node ui
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: home-automation-node-${{ runner.os }}-${{ runner.arch }}
+                  path: home-automation-node.tar.gz
+                  compression-level: 0
+                  retention-days: 7
