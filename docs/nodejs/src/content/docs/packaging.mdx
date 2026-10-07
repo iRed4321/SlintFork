@@ -1,0 +1,190 @@
+---
+title: Package Your Application
+description: Ship a Slint application written in JavaScript or TypeScript as a native executable for Windows, macOS, and Linux.
+---
+
+{/* cSpell: ignore appimagetool codesign editbin entitlements icns Inno MSIX myapp resedit signtool */}
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Give your users an application they start like any other,
+without installing Node.js or running `npm install`.
+Node.js builds such an executable from its own binary, as a [single executable application](https://nodejs.org/api/single-executable-applications.html).
+The executable starts your application from the files next to it.
+
+This takes Node.js 25.5 or newer, which is also the Node.js your application runs on.
+Build on each platform you ship to:
+npm installs native addons, including Slint's, for the platform it runs on.
+
+## Build the Executable
+
+In the directory of your `package.json`, add `start.cjs`,
+which loads [`slint-ui/register`](https://slint.dev/docs/node/#option-1-import-the-slint-file-recommended), then your entry point:
+
+```js
+import("slint-ui/register").then(() => import("./main.js"));
+```
+
+A TypeScript entry point works too, with the [type stripping](https://nodejs.org/api/typescript.html) of Node.js.
+
+Node.js builds a script into the executable.
+That script loads only built-in modules by itself, so it loads `start.cjs` from the directory of the executable.
+Save it as `sea-main.cjs`:
+
+```js
+const { createRequire } = require("node:module");
+createRequire(__filename)("./start.cjs");
+```
+
+Describe the executable in `sea-config.json`.
+On Windows, name the output `myapp.exe`:
+
+```json
+{
+    "main": "sea-main.cjs",
+    "output": "myapp",
+    "disableExperimentalSEAWarning": true
+}
+```
+
+Then build it:
+
+```sh
+node --build-sea sea-config.json
+```
+
+Build the paths between your files from `import.meta.url` or `import.meta.dirname`, as in `loadFile(new URL("../ui/main.slint", import.meta.url))`.
+A path relative to the working directory, such as `loadFile("ui/main.slint")`, doesn't work:
+the working directory is wherever your user starts the application from.
+
+## Ship the Application
+
+Ship the executable with `start.cjs`, your code and assets, and `node_modules`, keeping their layout.
+To leave out `devDependencies`, build from a clean checkout after installing only the production dependencies:
+
+```sh
+npm ci --omit=dev
+```
+
+## Finish for Your Platform
+
+<Tabs syncKey="dev-platform">
+<TabItem label="Windows" icon="seti:windows">
+
+The executable opens a console window, and shows the icon and version information of Node.js.
+Change both on a copy of `node.exe`, made with `Copy-Item (Get-Command node).Source app-node.exe`.
+Then build from that copy with `"executable": "app-node.exe"` in `sea-config.json`.
+
+To start without a console window, set the `WINDOWS` subsystem on the copy, with `editbin` or with `resedit`,
+as described in the [Windows platform guide](https://slint.dev/docs/slint/guide/platforms/desktop/windows/general/).
+Then the output of `console.log()` is lost, so skip this step while you debug.
+
+To show your application's icon and name in Explorer and Task Manager, use [`resedit-cli`](https://www.npmjs.com/package/resedit-cli):
+
+```powershell
+npx resedit-cli --in app-node.exe --out app-node.exe --ignore-signed --icon 1,myapp.ico `
+    --product-name "My App" --file-description "My App" --product-version 1.0.0.0 --file-version 1.0.0.0
+```
+
+The Slint addon needs the Visual C++ runtime.
+Install the [Visual C++ redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) with your application,
+or declare it as described in the [Windows packaging guide](https://slint.dev/docs/slint/guide/platforms/desktop/windows/packaging/).
+
+To distribute the result:
+
+- Sign `myapp.exe` and the native addons, which are the `.node` files under `node_modules`, with `signtool`.
+- Wrap the application in an installer, such as one made with [Inno Setup](https://jrsoftware.org/isinfo.php) or [WiX](https://wixtoolset.org/),
+  or in an MSIX package for the Microsoft Store, as the [Windows packaging guide](https://slint.dev/docs/slint/guide/platforms/desktop/windows/packaging/) describes.
+
+</TabItem>
+<TabItem label="macOS" icon="apple">
+
+Building the executable invalidates the signature of the Node.js binary.
+Sign it again with an ad-hoc signature, which is enough to run it on your own Mac:
+
+```sh
+codesign --sign - --force myapp
+```
+
+Finder starts an application from an app bundle.
+Put your application's files in `Resources/app`, and point `sea-main.cjs` at `../Resources/app/start.cjs`:
+
+```
+My App.app/
+  Contents/
+    Info.plist
+    MacOS/myapp
+    Resources/app/...
+    Resources/myapp.icns
+```
+
+`Info.plist` names the executable, the bundle identifier, and the icon:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>myapp</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.example.myapp</string>
+    <key>CFBundleName</key>
+    <string>My App</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleIconFile</key>
+    <string>myapp.icns</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+```
+
+To distribute the app to other Macs, sign it with your Developer ID and notarize it.
+Node.js compiles JavaScript at run time, so the hardened runtime needs to allow it.
+Write an `entitlements.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Sign the native addons, the `.node` files, before the app:
+
+```sh
+APP="My App.app"
+find "$APP/Contents/Resources" -name "*.node" -exec \
+    codesign --force --timestamp --options runtime --sign "Developer ID Application: Your Name" {} +
+codesign --force --timestamp --options runtime --entitlements entitlements.plist \
+    --sign "Developer ID Application: Your Name" "$APP"
+```
+
+Then notarize the app and ship it in a disk image,
+as described in [Distribute a DMG Outside the Mac App Store](https://slint.dev/docs/slint/guide/platforms/desktop/macos/packaging/#distribute-a-dmg-outside-the-mac-app-store).
+
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+The result runs on distributions with the same or a newer C library than the one Node.js was built against.
+Ship the application in an archive, or in one of the formats Linux desktops install:
+
+- A [Flatpak](https://slint.dev/docs/slint/guide/platforms/desktop/linux/packaging/).
+- An [AppImage](https://appimage.org/), made with `appimagetool` from a directory holding the application,
+  a `.desktop` file, and an icon.
+- A `.deb` or `.rpm` package, which installs the application under `/opt` and a `.desktop` file under `/usr/share/applications`.
+
+Linux desktops take the application name and icon from the `.desktop` file.
+
+</TabItem>
+</Tabs>
