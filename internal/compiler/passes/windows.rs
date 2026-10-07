@@ -5,7 +5,7 @@
 //! Make sure that the top level element of the component is always a Window
 
 use crate::diagnostics::BuildDiagnostics;
-use crate::expression_tree::{BindingExpression, Expression};
+use crate::expression_tree::{BindingExpression, Expression, Unit};
 use crate::langtype::{ElementType, Type};
 use crate::namedreference::NamedReference;
 use crate::object_tree::{Component, Element};
@@ -30,6 +30,8 @@ pub fn ensure_window(
     if inherits_window(component) {
         return; // already a window, nothing to do
     }
+
+    normalize_root_sizes(component);
 
     let window_type = type_register.lookup_builtin_element("Window").unwrap();
 
@@ -155,6 +157,26 @@ pub fn ensure_window(
     // The element only became a window here, so it missed the defaults that `Element::from_node`
     // gives a window the source writes, such as the title
     crate::object_tree::apply_default_type_properties(&mut component.root_element.borrow_mut());
+}
+
+fn normalize_root_sizes(component: &Rc<Component>) {
+    for property in ["width", "height"] {
+        let mut root_element = component.root_element.borrow_mut();
+        if !root_element.binding(property).is_some_and(|binding| {
+            matches!(
+                binding.expression.ignore_debug_hooks(),
+                Expression::NumberLiteral(value, Unit::Percent) if (*value - 100.).abs() < 0.001
+            )
+        }) {
+            continue;
+        }
+        let mut binding = root_element.take_binding(property).unwrap();
+        if let Expression::DebugHook { expression, synthetic, .. } = &mut binding.expression {
+            *expression = Expression::default_value_for_type(&Type::LogicalLength).into();
+            *synthetic = true;
+            root_element.set_binding(property.into(), binding);
+        }
+    }
 }
 
 pub fn inherits_window(component: &Rc<Component>) -> bool {
