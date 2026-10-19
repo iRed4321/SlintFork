@@ -224,6 +224,31 @@ pub struct PhysicalRegion {
     count: usize,
 }
 
+/// Grows `region` to the whole physical pixels it touches, which are the ones cleared and redrawn,
+/// and returns those pixels: an item that reaches into one of them is then drawn again, even when
+/// it misses the region as it was before rounding.
+fn snap_dirty_region(
+    region: &mut DirtyRegion,
+    factor: ScaleFactor,
+    screen_rect: &PhysicalRect,
+    rotation: RotationInfo,
+) -> PhysicalRegion {
+    let pixels: Vec<PhysicalRect> = region
+        .iter()
+        .filter_map(|r| (r.cast() * factor).to_rect().round_out().cast().intersection(screen_rect))
+        .collect();
+    let mut snapped = DirtyRegion::default();
+    for rect in &pixels {
+        snapped.add_rect((rect.cast::<f32>() / factor).cast());
+    }
+    *region = snapped;
+    let mut transformed = pixels.iter().map(|r| r.transformed(rotation));
+    PhysicalRegion {
+        rectangles: core::array::from_fn(|_| transformed.next().unwrap_or_default().to_box2d()),
+        count: pixels.len(),
+    }
+}
+
 impl PhysicalRegion {
     fn iter_box(&self) -> impl Iterator<Item = euclid::Box2D<i16, PhysicalPx>> + '_ {
         (0..self.count).map(|x| self.rectangles[x])
@@ -651,20 +676,8 @@ impl SoftwareRenderer {
 
                 let rotation = RotationInfo { orientation: rotation, screen_size: size };
                 let screen_rect = PhysicalRect::from_size(size);
-                let mut i = renderer.dirty_region.iter().filter_map(|r| {
-                    (r.cast() * factor)
-                        .to_rect()
-                        .round_out()
-                        .cast()
-                        .intersection(&screen_rect)?
-                        .transformed(rotation)
-                        .into()
-                });
-                let dirty_region = PhysicalRegion {
-                    rectangles: core::array::from_fn(|_| i.next().unwrap_or_default().to_box2d()),
-                    count: renderer.dirty_region.iter().count(),
-                };
-                drop(i);
+                let dirty_region =
+                    snap_dirty_region(&mut renderer.dirty_region, factor, &screen_rect, rotation);
 
                 renderer.actual_renderer.processor.dirty_region = dirty_region.clone();
                 if !renderer
@@ -1519,20 +1532,8 @@ fn prepare_scene(
         let rotation =
             RotationInfo { orientation: software_renderer.rotation.get(), screen_size: size };
         let screen_rect = PhysicalRect::from_size(size);
-        let mut i = renderer.dirty_region.iter().filter_map(|r| {
-            (r.cast() * factor)
-                .to_rect()
-                .round_out()
-                .cast()
-                .intersection(&screen_rect)?
-                .transformed(rotation)
-                .into()
-        });
-        dirty_region = PhysicalRegion {
-            rectangles: core::array::from_fn(|_| i.next().unwrap_or_default().to_box2d()),
-            count: renderer.dirty_region.iter().count(),
-        };
-        drop(i);
+        dirty_region =
+            snap_dirty_region(&mut renderer.dirty_region, factor, &screen_rect, rotation);
 
         let partial = software_renderer.repaint_buffer_type.get() != RepaintBufferType::NewBuffer;
         for (component, origin) in components {
@@ -1999,7 +2000,16 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
         commands: alloc::vec::Vec<path::Command>,
         color: PremultipliedRgbaColor,
     ) {
-        path::render_filled_path(&commands, &path_geometry, &clip_geometry, color, self.buffer);
+        // only within the dirty region, like the other primitives: what lies outside isn't redrawn
+        for clip in self.dirty_region.intersection(&clip_geometry).iter_box() {
+            path::render_filled_path(
+                &commands,
+                &path_geometry,
+                &clip.to_rect(),
+                color,
+                self.buffer,
+            );
+        }
     }
 
     #[cfg(feature = "path")]
@@ -2014,17 +2024,19 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
         stroke_line_join: i_slint_core::items::LineJoin,
         stroke_miter_limit: f32,
     ) {
-        path::render_stroked_path(
-            &commands,
-            &path_geometry,
-            &clip_geometry,
-            color,
-            stroke_width,
-            stroke_line_cap,
-            stroke_line_join,
-            stroke_miter_limit,
-            self.buffer,
-        );
+        for clip in self.dirty_region.intersection(&clip_geometry).iter_box() {
+            path::render_stroked_path(
+                &commands,
+                &path_geometry,
+                &clip.to_rect(),
+                color,
+                stroke_width,
+                stroke_line_cap,
+                stroke_line_join,
+                stroke_miter_limit,
+                self.buffer,
+            );
+        }
     }
 }
 
